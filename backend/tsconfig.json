@@ -2,17 +2,24 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "node",
+    "moduleResolution": "Node",
+    "rootDir": "..",
     "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["../shared/*"],
-      "zod": ["./node_modules/zod"]
+      "@shared/*": [
+        "../shared/*"
+      ],
+      "zod": [
+        "./node_modules/zod"
+      ]
     }
   },
-  "include": ["src/**/*", "../shared/**/*"]
+  "include": [
+    "src/**/*",
+    "../shared/**/*"
+  ]
 }
