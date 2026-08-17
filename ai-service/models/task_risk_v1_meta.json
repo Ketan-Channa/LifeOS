@@ -1,0 +1,23 @@
+{
+  "modelName": "task_risk_v1",
+  "version": "task-risk-v1",
+  "trainingSamples": 75,
+  "testSamples": 25,
+  "evaluationMetrics": {
+    "accuracy": 0.84,
+    "f1": 0.78,
+    "precision": 1.0,
+    "recall": 0.64
+  },
+  "featureNames": [
+    "estimatedMinutes",
+    "priority",
+    "category",
+    "energyLevel",
+    "daysUntilDue",
+    "dayOfWeek",
+    "categoryCompletionRate",
+    "postponementCount"
+  ],
+  "trainedAt": "2026-08-16T16:20:38.461622"
+}

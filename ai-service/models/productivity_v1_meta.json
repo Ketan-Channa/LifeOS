@@ -1,0 +1,16 @@
+{
+  "modelName": "productivity_v1",
+  "version": "productivity-v1",
+  "trainingSamples": 30,
+  "testSamples": 5,
+  "evaluationMetrics": {
+    "mae": 1.67
+  },
+  "featureNames": [
+    "completionRate",
+    "onTimeRate",
+    "habitScore",
+    "focusHours"
+  ],
+  "trainedAt": "2026-08-16T16:20:39.040493"
+}

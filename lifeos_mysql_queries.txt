@@ -1,0 +1,730 @@
+-- ====================================================================
+-- LIFEOS COMPLETE MYSQL DATABASE SCHEMA & QUERIES (PHASES 1 - 13)
+-- DATABASE: lifeos_db
+-- ENGINE: InnoDB | CHARACTER SET: utf8mb4 | COLLATE: utf8mb4_unicode_ci
+-- ====================================================================
+
+CREATE DATABASE IF NOT EXISTS `lifeos_db`
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE `lifeos_db`;
+
+-- ====================================================================
+-- PHASE 1 TABLES (AUTHENTICATION, ACCOUNTS & SUBSCRIPTIONS)
+-- ====================================================================
+
+-- 1. USERS TABLE
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` VARCHAR(36) NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `age` INT NULL,
+  `dob` VARCHAR(50) NULL,
+  `sex` VARCHAR(50) NULL,
+  `bloodGroup` VARCHAR(20) NULL,
+  `email` VARCHAR(255) NOT NULL,
+  `phone` VARCHAR(50) NULL,
+  `password` VARCHAR(255) NOT NULL,
+  `passwordHash` VARCHAR(255) NOT NULL,
+  `securityQuestion` VARCHAR(255) NULL,
+  `securityAnswer` VARCHAR(255) NULL,
+  `avatarUrl` VARCHAR(500) NULL,
+  `timezone` VARCHAR(100) NOT NULL DEFAULT 'UTC',
+  `currentPlan` VARCHAR(50) NOT NULL DEFAULT 'FREE',
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `users_email_key` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. PASSWORD RESET TOKENS TABLE
+CREATE TABLE IF NOT EXISTS `password_reset_tokens` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `token` VARCHAR(255) NOT NULL,
+  `expiresAt` DATETIME(3) NOT NULL,
+  `usedAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `password_reset_tokens_token_key` (`token`),
+  INDEX `password_reset_tokens_userId_idx` (`userId`),
+  CONSTRAINT `password_reset_tokens_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. SUBSCRIPTIONS TABLE
+CREATE TABLE IF NOT EXISTS `subscriptions` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `planName` VARCHAR(50) NOT NULL,
+  `amount` DOUBLE NOT NULL,
+  `currency` VARCHAR(10) NOT NULL DEFAULT 'INR',
+  `status` VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+  `razorpayId` VARCHAR(255) NULL,
+  `currentPeriodStart` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `currentPeriodEnd` DATETIME(3) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `subscriptions_userId_idx` (`userId`),
+  CONSTRAINT `subscriptions_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ====================================================================
+-- PHASE 2 & 3 TABLES (TASKS, TASK HISTORIES, GOALS, MILESTONES, SCHEDULE, HABITS, NOTES)
+-- ====================================================================
+
+-- 4. GOALS TABLE
+CREATE TABLE IF NOT EXISTS `goals` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `category` VARCHAR(100) NOT NULL DEFAULT 'General',
+  `priority` ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') NOT NULL DEFAULT 'MEDIUM',
+  `startDate` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `targetDate` DATETIME(3) NULL,
+  `progress` DOUBLE NOT NULL DEFAULT 0.0,
+  `status` ENUM('ACTIVE', 'COMPLETED', 'PAUSED', 'ARCHIVED') NOT NULL DEFAULT 'ACTIVE',
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `goals_userId_idx` (`userId`),
+  INDEX `goals_status_idx` (`status`),
+  CONSTRAINT `goals_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. MILESTONES TABLE
+CREATE TABLE IF NOT EXISTS `milestones` (
+  `id` VARCHAR(36) NOT NULL,
+  `goalId` VARCHAR(36) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `order` INT NOT NULL DEFAULT 1,
+  `completed` TINYINT(1) NOT NULL DEFAULT 0,
+  `completedAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `milestones_goalId_idx` (`goalId`),
+  CONSTRAINT `milestones_goalId_fkey` 
+    FOREIGN KEY (`goalId`) REFERENCES `goals` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. TASKS TABLE (INCLUDES TELEMETRY & LINKED GOALS)
+CREATE TABLE IF NOT EXISTS `tasks` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `goalId` VARCHAR(36) NULL,
+  `milestoneId` VARCHAR(36) NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `category` VARCHAR(100) NOT NULL DEFAULT 'General',
+  `priority` ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') NOT NULL DEFAULT 'MEDIUM',
+  `status` ENUM('TODO', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'TODO',
+  `dueDate` DATETIME(3) NULL,
+  `estimatedMinutes` INT NOT NULL DEFAULT 30,
+  `actualMinutes` INT NOT NULL DEFAULT 0,
+  `energyLevel` ENUM('LOW', 'MEDIUM', 'HIGH') NOT NULL DEFAULT 'MEDIUM',
+  `scheduledStart` DATETIME(3) NULL,
+  `scheduledEnd` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `startedAt` DATETIME(3) NULL,
+  `completedAt` DATETIME(3) NULL,
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `tasks_userId_idx` (`userId`),
+  INDEX `tasks_goalId_idx` (`goalId`),
+  INDEX `tasks_status_idx` (`status`),
+  INDEX `tasks_dueDate_idx` (`dueDate`),
+  CONSTRAINT `tasks_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `tasks_goalId_fkey` 
+    FOREIGN KEY (`goalId`) REFERENCES `goals` (`id`) 
+    ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 7. TASK HISTORIES TABLE
+CREATE TABLE IF NOT EXISTS `task_histories` (
+  `id` VARCHAR(36) NOT NULL,
+  `taskId` VARCHAR(36) NOT NULL,
+  `action` VARCHAR(50) NOT NULL,
+  `previousStatus` VARCHAR(50) NULL,
+  `newStatus` VARCHAR(50) NULL,
+  `previousDueDate` DATETIME(3) NULL,
+  `newDueDate` DATETIME(3) NULL,
+  `timestamp` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `task_histories_taskId_idx` (`taskId`),
+  CONSTRAINT `task_histories_taskId_fkey` 
+    FOREIGN KEY (`taskId`) REFERENCES `tasks` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 8. SCHEDULE EVENTS TABLE
+CREATE TABLE IF NOT EXISTS `schedule_events` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `type` ENUM('TASK', 'CLASS', 'WORK', 'PERSONAL', 'MEETING', 'EXERCISE', 'OTHER') NOT NULL DEFAULT 'OTHER',
+  `startTime` DATETIME(3) NOT NULL,
+  `endTime` DATETIME(3) NOT NULL,
+  `priority` ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') NOT NULL DEFAULT 'MEDIUM',
+  `location` VARCHAR(255) NULL,
+  `isAllDay` TINYINT(1) NOT NULL DEFAULT 0,
+  `recurrenceRule` VARCHAR(255) NULL,
+  `reminderMinutes` INT NULL,
+  `linkedTaskId` VARCHAR(36) NULL,
+  `linkedGoalId` VARCHAR(36) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `schedule_events_userId_idx` (`userId`),
+  INDEX `schedule_events_startTime_idx` (`startTime`),
+  INDEX `schedule_events_linkedTaskId_idx` (`linkedTaskId`),
+  INDEX `schedule_events_linkedGoalId_idx` (`linkedGoalId`),
+  CONSTRAINT `schedule_events_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `schedule_events_linkedTaskId_fkey` 
+    FOREIGN KEY (`linkedTaskId`) REFERENCES `tasks` (`id`) 
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `schedule_events_linkedGoalId_fkey` 
+    FOREIGN KEY (`linkedGoalId`) REFERENCES `goals` (`id`) 
+    ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. HABITS TABLE
+CREATE TABLE IF NOT EXISTS `habits` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `goalId` VARCHAR(36) NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `category` VARCHAR(100) NOT NULL DEFAULT 'Personal',
+  `frequency` ENUM('DAILY', 'WEEKLY', 'WEEKDAYS', 'CUSTOM') NOT NULL DEFAULT 'DAILY',
+  `customDays` VARCHAR(255) NULL,
+  `targetValue` DOUBLE NOT NULL DEFAULT 1.0,
+  `targetUnit` VARCHAR(50) NOT NULL DEFAULT 'session',
+  `preferredTime` VARCHAR(50) NULL,
+  `priority` ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') NOT NULL DEFAULT 'MEDIUM',
+  `startDate` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `reminderMinutes` INT NULL,
+  `isActive` TINYINT(1) NOT NULL DEFAULT 1,
+  `currentStreak` INT NOT NULL DEFAULT 0,
+  `longestStreak` INT NOT NULL DEFAULT 0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `habits_userId_idx` (`userId`),
+  INDEX `habits_goalId_idx` (`goalId`),
+  INDEX `habits_isActive_idx` (`isActive`),
+  CONSTRAINT `habits_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `habits_goalId_fkey` 
+    FOREIGN KEY (`goalId`) REFERENCES `goals` (`id`) 
+    ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. HABIT LOGS TABLE
+CREATE TABLE IF NOT EXISTS `habit_logs` (
+  `id` VARCHAR(36) NOT NULL,
+  `habitId` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `date` VARCHAR(10) NOT NULL,
+  `status` ENUM('COMPLETED', 'PARTIAL', 'MISSED', 'SKIPPED') NOT NULL DEFAULT 'COMPLETED',
+  `value` DOUBLE NOT NULL DEFAULT 1.0,
+  `targetValue` DOUBLE NOT NULL DEFAULT 1.0,
+  `completedAt` DATETIME(3) NULL,
+  `notes` TEXT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `habit_logs_habitId_date_key` (`habitId`, `date`),
+  INDEX `habit_logs_userId_idx` (`userId`),
+  INDEX `habit_logs_date_idx` (`date`),
+  CONSTRAINT `habit_logs_habitId_fkey` 
+    FOREIGN KEY (`habitId`) REFERENCES `habits` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `habit_logs_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 11. NOTES TABLE
+CREATE TABLE IF NOT EXISTS `notes` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `content` TEXT NOT NULL,
+  `category` VARCHAR(100) NOT NULL DEFAULT 'General',
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `notes_userId_idx` (`userId`),
+  CONSTRAINT `notes_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ====================================================================
+-- PHASE 4 THROUGH PHASE 13 TABLES
+-- ====================================================================
+
+-- 12. GOAL HISTORIES TABLE
+CREATE TABLE IF NOT EXISTS `goal_histories` (
+  `id` VARCHAR(36) NOT NULL,
+  `goalId` VARCHAR(36) NOT NULL,
+  `action` VARCHAR(100) NOT NULL,
+  `previousProgress` DOUBLE NULL,
+  `newProgress` DOUBLE NULL,
+  `previousStatus` VARCHAR(50) NULL,
+  `newStatus` VARCHAR(50) NULL,
+  `timestamp` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `goal_histories_goalId_idx` (`goalId`),
+  CONSTRAINT `goal_histories_goalId_fkey` 
+    FOREIGN KEY (`goalId`) REFERENCES `goals` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 13. SCHEDULE HISTORIES TABLE
+CREATE TABLE IF NOT EXISTS `schedule_histories` (
+  `id` VARCHAR(36) NOT NULL,
+  `eventId` VARCHAR(36) NOT NULL,
+  `action` VARCHAR(100) NOT NULL,
+  `previousStartTime` DATETIME(3) NULL,
+  `newStartTime` DATETIME(3) NULL,
+  `previousEndTime` DATETIME(3) NULL,
+  `newEndTime` DATETIME(3) NULL,
+  `timestamp` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `schedule_histories_eventId_idx` (`eventId`),
+  CONSTRAINT `schedule_histories_eventId_fkey` 
+    FOREIGN KEY (`eventId`) REFERENCES `schedule_events` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 14. HABIT HISTORIES TABLE
+CREATE TABLE IF NOT EXISTS `habit_histories` (
+  `id` VARCHAR(36) NOT NULL,
+  `habitId` VARCHAR(36) NOT NULL,
+  `action` VARCHAR(100) NOT NULL,
+  `metadata` TEXT NULL,
+  `timestamp` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `habit_histories_habitId_idx` (`habitId`),
+  CONSTRAINT `habit_histories_habitId_fkey` 
+    FOREIGN KEY (`habitId`) REFERENCES `habits` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 15. AI INTERACTIONS TABLE
+CREATE TABLE IF NOT EXISTS `ai_interactions` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `message` TEXT NOT NULL,
+  `response` TEXT NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `ai_interactions_userId_idx` (`userId`),
+  CONSTRAINT `ai_interactions_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 16. AI RECOMMENDATIONS TABLE
+CREATE TABLE IF NOT EXISTS `ai_recommendations` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `type` VARCHAR(100) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `reason` TEXT NOT NULL,
+  `priority` ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') NOT NULL DEFAULT 'MEDIUM',
+  `suggestedAction` VARCHAR(255) NULL,
+  `applied` TINYINT(1) NOT NULL DEFAULT 0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `ai_recommendations_userId_idx` (`userId`),
+  CONSTRAINT `ai_recommendations_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 17. AI PLAN HISTORIES TABLE
+CREATE TABLE IF NOT EXISTS `ai_plan_histories` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `date` VARCHAR(10) NOT NULL,
+  `planName` VARCHAR(100) NOT NULL,
+  `planScore` INT NOT NULL DEFAULT 80,
+  `planData` TEXT NOT NULL,
+  `selected` TINYINT(1) NOT NULL DEFAULT 0,
+  `applied` TINYINT(1) NOT NULL DEFAULT 0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `ai_plan_histories_userId_idx` (`userId`),
+  INDEX `ai_plan_histories_date_idx` (`date`),
+  CONSTRAINT `ai_plan_histories_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 18. KNOWLEDGE DOCUMENTS TABLE
+CREATE TABLE IF NOT EXISTS `knowledge_documents` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `originalFileName` VARCHAR(255) NOT NULL,
+  `fileType` VARCHAR(50) NOT NULL,
+  `fileSize` INT NOT NULL,
+  `category` VARCHAR(100) NOT NULL DEFAULT 'General',
+  `description` TEXT NULL,
+  `tags` TEXT NULL,
+  `storagePath` VARCHAR(500) NOT NULL,
+  `processingStatus` ENUM('UPLOADED', 'PROCESSING', 'READY', 'FAILED') NOT NULL DEFAULT 'UPLOADED',
+  `pageCount` INT NOT NULL DEFAULT 1,
+  `wordCount` INT NOT NULL DEFAULT 0,
+  `errorMessage` TEXT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `knowledge_documents_userId_idx` (`userId`),
+  INDEX `knowledge_documents_category_idx` (`category`),
+  INDEX `knowledge_documents_processingStatus_idx` (`processingStatus`),
+  INDEX `knowledge_documents_createdAt_idx` (`createdAt`),
+  CONSTRAINT `knowledge_documents_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 19. KNOWLEDGE CHUNKS TABLE
+CREATE TABLE IF NOT EXISTS `knowledge_chunks` (
+  `id` VARCHAR(36) NOT NULL,
+  `documentId` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `chunkIndex` INT NOT NULL,
+  `content` TEXT NOT NULL,
+  `tokenCount` INT NOT NULL DEFAULT 0,
+  `metadata` TEXT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `knowledge_chunks_documentId_idx` (`documentId`),
+  INDEX `knowledge_chunks_userId_idx` (`userId`),
+  CONSTRAINT `knowledge_chunks_documentId_fkey` 
+    FOREIGN KEY (`documentId`) REFERENCES `knowledge_documents` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `knowledge_chunks_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 20. KNOWLEDGE DOCUMENT HISTORIES TABLE
+CREATE TABLE IF NOT EXISTS `knowledge_document_histories` (
+  `id` VARCHAR(36) NOT NULL,
+  `documentId` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `action` VARCHAR(100) NOT NULL,
+  `timestamp` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `metadata` TEXT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `knowledge_document_histories_documentId_idx` (`documentId`),
+  INDEX `knowledge_document_histories_userId_idx` (`userId`),
+  CONSTRAINT `knowledge_document_histories_documentId_fkey` 
+    FOREIGN KEY (`documentId`) REFERENCES `knowledge_documents` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `knowledge_document_histories_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 21. SCOUT CONVERSATIONS TABLE
+CREATE TABLE IF NOT EXISTS `scout_conversations` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `title` VARCHAR(255) NOT NULL DEFAULT 'New Conversation',
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `scout_conversations_userId_idx` (`userId`),
+  INDEX `scout_conversations_createdAt_idx` (`createdAt`),
+  CONSTRAINT `scout_conversations_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 22. SCOUT MESSAGES TABLE
+CREATE TABLE IF NOT EXISTS `scout_messages` (
+  `id` VARCHAR(36) NOT NULL,
+  `conversationId` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `role` ENUM('USER', 'ASSISTANT', 'TOOL', 'SYSTEM') NOT NULL DEFAULT 'USER',
+  `content` TEXT NOT NULL,
+  `intent` VARCHAR(100) NULL DEFAULT 'GENERAL_QUERY',
+  `sources` TEXT NULL,
+  `actions` TEXT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `scout_messages_conversationId_idx` (`conversationId`),
+  INDEX `scout_messages_userId_idx` (`userId`),
+  INDEX `scout_messages_createdAt_idx` (`createdAt`),
+  CONSTRAINT `scout_messages_conversationId_fkey` 
+    FOREIGN KEY (`conversationId`) REFERENCES `scout_conversations` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `scout_messages_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 23. SCOUT TOOL EXECUTIONS TABLE
+CREATE TABLE IF NOT EXISTS `scout_tool_executions` (
+  `id` VARCHAR(36) NOT NULL,
+  `conversationId` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `toolName` VARCHAR(100) NOT NULL,
+  `input` TEXT NOT NULL,
+  `outputSummary` TEXT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'COMPLETED',
+  `requiresConfirmation` TINYINT(1) NOT NULL DEFAULT 0,
+  `confirmed` TINYINT(1) NOT NULL DEFAULT 0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `scout_tool_executions_conversationId_idx` (`conversationId`),
+  INDEX `scout_tool_executions_userId_idx` (`userId`),
+  INDEX `scout_tool_executions_toolName_idx` (`toolName`),
+  CONSTRAINT `scout_tool_executions_conversationId_fkey` 
+    FOREIGN KEY (`conversationId`) REFERENCES `scout_conversations` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `scout_tool_executions_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 24. SCOUT PREDICTION OUTCOMES TABLE
+CREATE TABLE IF NOT EXISTS `scout_prediction_outcomes` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `targetType` VARCHAR(100) NOT NULL,
+  `targetId` VARCHAR(36) NOT NULL,
+  `predictedRisk` DOUBLE NOT NULL,
+  `actualOutcome` VARCHAR(100) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `scout_prediction_outcomes_userId_idx` (`userId`),
+  INDEX `scout_prediction_outcomes_targetType_idx` (`targetType`),
+  INDEX `scout_prediction_outcomes_targetId_idx` (`targetId`),
+  CONSTRAINT `scout_prediction_outcomes_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 25. AGENT RUNS TABLE
+CREATE TABLE IF NOT EXISTS `agent_runs` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `conversationId` VARCHAR(36) NULL,
+  `objective` TEXT NOT NULL,
+  `intent` VARCHAR(100) NOT NULL DEFAULT 'PLAN',
+  `status` VARCHAR(50) NOT NULL DEFAULT 'IDLE',
+  `autonomyLevel` VARCHAR(50) NOT NULL DEFAULT 'AUTONOMY_2',
+  `startedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `completedAt` DATETIME(3) NULL,
+  `result` TEXT NULL,
+  `error` TEXT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `agent_runs_userId_idx` (`userId`),
+  INDEX `agent_runs_status_idx` (`status`),
+  CONSTRAINT `agent_runs_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 26. AGENT STEPS TABLE
+CREATE TABLE IF NOT EXISTS `agent_steps` (
+  `id` VARCHAR(36) NOT NULL,
+  `agentRunId` VARCHAR(36) NOT NULL,
+  `stepNumber` INT NOT NULL,
+  `stepType` VARCHAR(100) NOT NULL,
+  `description` VARCHAR(500) NOT NULL,
+  `toolName` VARCHAR(100) NULL,
+  `inputSummary` TEXT NULL,
+  `outputSummary` TEXT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+  `requiresApproval` TINYINT(1) NOT NULL DEFAULT 0,
+  `approved` TINYINT(1) NOT NULL DEFAULT 0,
+  `startedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `completedAt` DATETIME(3) NULL,
+  PRIMARY KEY (`id`),
+  INDEX `agent_steps_agentRunId_idx` (`agentRunId`),
+  INDEX `agent_steps_stepNumber_idx` (`stepNumber`),
+  CONSTRAINT `agent_steps_agentRunId_fkey` 
+    FOREIGN KEY (`agentRunId`) REFERENCES `agent_runs` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 27. AGENT SETTINGS TABLE
+CREATE TABLE IF NOT EXISTS `agent_settings` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `autonomyLevel` VARCHAR(50) NOT NULL DEFAULT 'AUTONOMY_2',
+  `allowLowRiskActions` TINYINT(1) NOT NULL DEFAULT 0,
+  `allowTaskCreation` TINYINT(1) NOT NULL DEFAULT 1,
+  `allowScheduleChanges` TINYINT(1) NOT NULL DEFAULT 0,
+  `allowGoalChanges` TINYINT(1) NOT NULL DEFAULT 0,
+  `allowNotifications` TINYINT(1) NOT NULL DEFAULT 1,
+  `requireConfirmationForWrites` TINYINT(1) NOT NULL DEFAULT 1,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `agent_settings_userId_key` (`userId`),
+  CONSTRAINT `agent_settings_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 28. AGENT MEMORIES TABLE
+CREATE TABLE IF NOT EXISTS `agent_memories` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `type` VARCHAR(50) NOT NULL DEFAULT 'PREFERENCE',
+  `key` VARCHAR(255) NOT NULL,
+  `value` TEXT NOT NULL,
+  `source` VARCHAR(100) NOT NULL DEFAULT 'USER_EXPLICIT',
+  `confidence` DOUBLE NOT NULL DEFAULT 1.0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `agent_memories_userId_idx` (`userId`),
+  INDEX `agent_memories_type_idx` (`type`),
+  CONSTRAINT `agent_memories_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 29. AGENT CONSTRAINTS TABLE
+CREATE TABLE IF NOT EXISTS `agent_constraints` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `type` VARCHAR(100) NOT NULL,
+  `value` TEXT NOT NULL,
+  `priority` VARCHAR(50) NOT NULL DEFAULT 'MEDIUM',
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `agent_constraints_userId_idx` (`userId`),
+  INDEX `agent_constraints_active_idx` (`active`),
+  CONSTRAINT `agent_constraints_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 30. AGENT ACTION LOGS TABLE
+CREATE TABLE IF NOT EXISTS `agent_action_logs` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `agentRunId` VARCHAR(36) NULL,
+  `actionType` VARCHAR(100) NOT NULL,
+  `targetType` VARCHAR(100) NULL,
+  `targetId` VARCHAR(36) NULL,
+  `oldValue` TEXT NULL,
+  `newValue` TEXT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'COMPLETED',
+  `confirmed` TINYINT(1) NOT NULL DEFAULT 1,
+  `reversible` TINYINT(1) NOT NULL DEFAULT 1,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `agent_action_logs_userId_idx` (`userId`),
+  INDEX `agent_action_logs_agentRunId_idx` (`agentRunId`),
+  CONSTRAINT `agent_action_logs_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `agent_action_logs_agentRunId_fkey` 
+    FOREIGN KEY (`agentRunId`) REFERENCES `agent_runs` (`id`) 
+    ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 31. NOTIFICATIONS TABLE
+CREATE TABLE IF NOT EXISTS `notifications` (
+  `id` VARCHAR(36) NOT NULL,
+  `userId` VARCHAR(36) NOT NULL,
+  `type` VARCHAR(100) NOT NULL DEFAULT 'GENERAL',
+  `title` VARCHAR(255) NOT NULL,
+  `message` TEXT NOT NULL,
+  `priority` VARCHAR(50) NOT NULL DEFAULT 'MEDIUM',
+  `isRead` TINYINT(1) NOT NULL DEFAULT 0,
+  `actionUrl` VARCHAR(255) NULL,
+  `metadata` JSON NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `readAt` DATETIME(3) NULL,
+  PRIMARY KEY (`id`),
+  INDEX `notifications_userId_idx` (`userId`),
+  INDEX `notifications_isRead_idx` (`isRead`),
+  CONSTRAINT `notifications_userId_fkey` 
+    FOREIGN KEY (`userId`) REFERENCES `users` (`id`) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ====================================================================
+-- SELECT * QUERIES FOR ALL TABLES IN LIFEOS DATABASE
+-- ====================================================================
+
+-- PHASE 1: Authentication & Subscriptions
+SELECT * FROM `users`;
+SELECT * FROM `password_reset_tokens`;
+SELECT * FROM `subscriptions`;
+
+-- PHASE 2 & 3: Tasks & Task Telemetry
+SELECT * FROM `tasks`;
+SELECT * FROM `task_histories`;
+
+-- PHASE 2 & 4: Goals & Milestones Audit
+SELECT * FROM `goals`;
+SELECT * FROM `milestones`;
+SELECT * FROM `goal_histories`;
+
+-- PHASE 2 & 4: Schedule & Calendar
+SELECT * FROM `schedule_events`;
+SELECT * FROM `schedule_histories`;
+
+-- PHASE 2 & 4: Habits & Routine Telemetry
+SELECT * FROM `habits`;
+SELECT * FROM `habit_logs`;
+SELECT * FROM `habit_histories`;
+
+-- PHASE 2 & 6: Notes & AI Daily Planning
+SELECT * FROM `notes`;
+SELECT * FROM `ai_interactions`;
+SELECT * FROM `ai_recommendations`;
+SELECT * FROM `ai_plan_histories`;
+
+-- PHASE 9: Personal Knowledge Base & RAG Engine
+SELECT * FROM `knowledge_documents`;
+SELECT * FROM `knowledge_chunks`;
+SELECT * FROM `knowledge_document_histories`;
+
+-- PHASE 10: SCOUT AI Agent & ML Outcome Telemetry
+SELECT * FROM `scout_conversations`;
+SELECT * FROM `scout_messages`;
+SELECT * FROM `scout_tool_executions`;
+SELECT * FROM `scout_prediction_outcomes`;
+
+-- PHASE 11 & 12: Autonomous AI Agent Engine, Memory & Security Audit
+SELECT * FROM `agent_runs`;
+SELECT * FROM `agent_steps`;
+SELECT * FROM `agent_settings`;
+SELECT * FROM `agent_memories`;
+SELECT * FROM `agent_constraints`;
+SELECT * FROM `agent_action_logs`;
+
+-- PHASE 13: Notification Center
+SELECT * FROM `notifications`;

@@ -1,0 +1,18 @@
+{
+  "modelName": "goal_risk_v1",
+  "version": "goal-risk-v1",
+  "trainingSamples": 15,
+  "testSamples": 5,
+  "evaluationMetrics": {
+    "accuracy": 1.0,
+    "f1": 1.0
+  },
+  "featureNames": [
+    "progress",
+    "daysRemaining",
+    "requiredDailyProgress",
+    "priority",
+    "postponementRate"
+  ],
+  "trainedAt": "2026-08-16T16:20:38.866979"
+}
