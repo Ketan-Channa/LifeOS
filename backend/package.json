@@ -2,6 +2,9 @@
   "name": "lifeos-backend",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "description": "LifeOS Express Backend Server",
   "main": "dist/server.js",
   "scripts": {
