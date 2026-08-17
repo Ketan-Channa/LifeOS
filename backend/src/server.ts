@@ -25,6 +25,7 @@ import prisma from './config/prisma';
 dotenv.config();
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
@@ -35,8 +36,8 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? [CLIENT_URL] 
+  origin: process.env.NODE_ENV === 'production'
+    ? [CLIENT_URL]
     : [CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'],
   credentials: true
 }));
@@ -354,8 +355,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     success: false,
     error: {
       code: err.code || (statusCode === 401 ? 'UNAUTHORIZED' : statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_SERVER_ERROR'),
-      message: isProd && statusCode === 500 
-        ? 'An internal error occurred. Please try again later.' 
+      message: isProd && statusCode === 500
+        ? 'An internal error occurred. Please try again later.'
         : err.message || 'Internal Server Error'
     }
   });
